@@ -1,0 +1,12 @@
+#pragma once
+class Sphere;
+class Solid;
+class Box;
+class Color;
+class GaussianBlur;
+class PixelBuffer;
+class PixelData;
+class Vector3;
+class RayHit;
+class Ray;
+class Line;
