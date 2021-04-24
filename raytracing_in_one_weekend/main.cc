@@ -5,6 +5,7 @@
 #include "camera.h"
 #include "material.h"
 #include "Timer.h"
+#include <omp.h>
 
 color ray_color(const ray &r, const hittable &world, int depth)
 {
@@ -137,7 +138,8 @@ hittable_list random_scene()
     return world;
 }
 
-void pixel_serial(camera &cam, hittable_list &world, int max_depth, int samples_per_pixel, int image_height, int image_width, int i, int j) {
+
+void pixel_serial_unopt(camera &cam, hittable_list &world, int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
     color pixel_color(0, 0, 0);
     for (int s = 0; s < samples_per_pixel; ++s)
     {
@@ -149,6 +151,60 @@ void pixel_serial(camera &cam, hittable_list &world, int max_depth, int samples_
     write_color(std::cout, pixel_color, samples_per_pixel);
 }
 
+void pixel_serial_unroll_2(camera &cam, hittable_list &world, int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
+    color pixel_color(0, 0, 0);
+    for (int s = 0; s < samples_per_pixel; s += 2)
+    {
+        auto u1 = (i + random_float()) / (image_width - 1);
+        auto u2 = (i + random_float()) / (image_width - 1);
+        auto v1 = (j + random_float()) / (image_height - 1);
+        auto v2 = (j + random_float()) / (image_height - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        pixel_color += ray_color(r1, world, max_depth);
+        pixel_color += ray_color(r2, world, max_depth);
+    }
+    write_color(std::cout, pixel_color, samples_per_pixel);
+}
+void pixel_serial_unroll_2(camera &cam, hittable_list &world, color pixel_colors[], int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
+    color pixel_color(0, 0, 0);
+    for (int s = 0; s < samples_per_pixel; s += 2)
+    {
+        auto u1 = (i + random_float()) / (image_width - 1);
+        auto u2 = (i + random_float()) / (image_width - 1);
+        auto v1 = (j + random_float()) / (image_height - 1);
+        auto v2 = (j + random_float()) / (image_height - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        pixel_color += ray_color(r1, world, max_depth);
+        pixel_color += ray_color(r2, world, max_depth);
+    }
+    pixel_colors[j * image_width + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
+}
+
+void pixel_serial_unroll_4(camera &cam, hittable_list &world, color pixel_colors[], int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
+    color pixel_color(0, 0, 0);
+    for (int s = 0; s < samples_per_pixel; s += 4)
+    {
+        auto u1 = (i + random_float()) / (image_width - 1);
+        auto u2 = (i + random_float()) / (image_width - 1);
+        auto u3 = (i + random_float()) / (image_width - 1);
+        auto u4 = (i + random_float()) / (image_width - 1);
+        auto v1 = (j + random_float()) / (image_height - 1);
+        auto v2 = (j + random_float()) / (image_height - 1);
+        auto v3 = (j + random_float()) / (image_height - 1);
+        auto v4 = (j + random_float()) / (image_height - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        ray r3 = cam.get_ray(u3, v3);
+        ray r4 = cam.get_ray(u4, v4);
+        pixel_color += ray_color(r1, world, max_depth);
+        pixel_color += ray_color(r2, world, max_depth);
+        pixel_color += ray_color(r3, world, max_depth);
+        pixel_color += ray_color(r4, world, max_depth);
+    }
+    pixel_colors[((image_height - j - 1) * image_width) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
+}
 int main()
 {
 
@@ -159,6 +215,7 @@ int main()
     const int image_height = static_cast<int>(image_width / aspect_ratio);
     const int samples_per_pixel = 20;
     const int max_depth = 50;
+    color* pixel_colors= new color[image_width * image_height];
 
     // World
 
@@ -179,25 +236,29 @@ int main()
               << image_width << ' ' << image_height << "\n255\n";
     {
         Timer timer;
+        // Fill output matrix: rows and columns are i and j respectively
+        omp_set_dynamic(0);     // Explicitly disable dynamic teams
+
+        omp_set_num_threads(16);
+        #pragma omp parallel for
         for (int j = image_height - 1; j >= 0; --j)
         {
             std::cerr << "\rScanlines remaining: " << j << ' ' << std::flush;
             for (int i = 0; i < image_width; ++i)
             {
-                pixel_serial(cam, world, max_depth, samples_per_pixel, image_width, image_height, i, j);
-                /*
-                color pixel_color(0, 0, 0);
-                for (int s = 0; s < samples_per_pixel; ++s)
-                {
-                    auto u = (i + random_float()) / (image_width - 1);
-                    auto v = (j + random_float()) / (image_height - 1);
-                    ray r = cam.get_ray(u, v);
-                    pixel_color += ray_color(r, world, max_depth);
-                }
-                write_color(std::cout, pixel_color, samples_per_pixel);
-                */
+                pixel_serial_unroll_4(cam, world, pixel_colors, max_depth, samples_per_pixel, image_width, image_height, i, j);
+                // color pixel_color(0, 0, 0);
+                // for (int s = 0; s < samples_per_pixel; ++s)
+                // {
+                //     auto u = (i + random_float()) / (image_width - 1);
+                //     auto v = (j + random_float()) / (image_height - 1);
+                //     ray r = cam.get_ray(u, v);
+                //     pixel_color += ray_color(r, world, max_depth);
+                // }
+                // write_color(std::cout, pixel_color, samples_per_pixel);
             }
         }
     }
+    write_colors(std::cout, pixel_colors, image_width * image_height, samples_per_pixel);
     std::cerr << "\nDone.\n";
 }

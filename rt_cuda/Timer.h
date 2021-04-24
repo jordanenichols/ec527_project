@@ -16,7 +16,7 @@ struct Timer
         end = std::chrono::high_resolution_clock::now();
         duration = end - start;
 
-        float s = duration.count();
-        std::cerr << "Timer took " << s << "s" << std::endl;
+        float ms = duration.count() * 1000.0f;
+        std::cerr << "Timer took " << ms << "ms" << std::endl;
     }
 };
