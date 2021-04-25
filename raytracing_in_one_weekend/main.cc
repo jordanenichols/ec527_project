@@ -19,15 +19,15 @@ using std::string;
 #define MAX_DEPTH 50
 #define SAMPLES_PER_PIXEL 20
 #define ASPECT_RATIO (16.0f / 9.0f)
-#define IMG_WIDTH 256
+#define IMG_WIDTH 120
 #define IMG_HEIGHT static_cast<int>(IMG_WIDTH / ASPECT_RATIO)
 
 template <typename Function>
-void driver(Function func, string name, camera &cam, hittable_list &world, color pixel_colors[])
+
+float driver(Function func, string name, camera &cam, hittable_list &world, color pixel_colors[])
 {
     std::cerr << "Testing " << name << "..." << endl;
     Timer timer;
-    int counter = IMG_HEIGHT;
 #pragma omp parallel for
     for (int j = IMG_HEIGHT - 1; j >= 0; --j)
     {
@@ -36,25 +36,52 @@ void driver(Function func, string name, camera &cam, hittable_list &world, color
             func(cam, world, pixel_colors, i, j);
         }
     }
-    return;
+    return timer.timer_end();
 }
+
+void ray_trace(camera &cam, hittable_list &world, color pixel_colors[])
+{
+    /* Loop through each pixel in the image */
+    for (int j = IMG_HEIGHT - 1; j >= 0; --j)
+    {
+        for (int i = 0; i < IMG_WIDTH; ++i)
+        {
+            /* Generate SAMPLES_PER_PIXEL rays for pixel [i, j] */
+            color pixel_color(0, 0, 0);
+            for (int s = 0; s < SAMPLES_PER_PIXEL; ++s)
+            {
+                /* Each ray `r` from the camera to pixel [i, j] is offset by a random value in [0, 1) */
+                auto u = (i + random_float()) / (IMG_WIDTH - 1);
+                auto v = (j + random_float()) / (IMG_HEIGHT - 1);
+                ray r = cam.get_ray(u, v);
+                /* Determine the color of the pixel by calculating which, if any, objects the ray intersects */
+                pixel_color += ray_color(r, world, MAX_DEPTH);
+            }
+            /* Write the pixel color to the array */
+            pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
+        }
+    }
+}
+
 color ray_color(const ray &r, const hittable &world, int depth)
 {
     hit_record rec;
 
-    // If we've exceeded the ray bounce limit, no more light is gathered.
+    /* If we've exceeded the ray bounce limit, no more light is gathered */
     if (depth <= 0)
         return color(0, 0, 0);
 
     if (world.hit(r, 0.001, infinity, rec))
     {
+        /* If we hit an object, calculate scattered rays based on material of object */
         ray scattered;
         color attenuation;
+        /* If we scatter, then we recurse on the attenuated scattered ray */
         if (rec.mat_ptr->scatter(r, rec, attenuation, scattered))
             return attenuation * ray_color(scattered, world, depth - 1);
         return color(0, 0, 0);
     }
-
+    /* If we hit nothing, return gradient based on y value */
     vec3 unit_direction = unit_vector(r.direction());
     auto t = 0.5 * (unit_direction.y() + 1.0);
     return (1.0 - t) * color(1.0, 1.0, 1.0) + t * color(0.5, 0.7, 1.0);
@@ -287,7 +314,7 @@ void pixel_serial_unroll_8(camera &cam, hittable_list &world, color pixel_colors
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void pixel_serial_unroll_2_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void unroll_2_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
     color pixel_color2(0, 0, 0);
@@ -407,7 +434,8 @@ int main()
 
     // World
 
-    auto world = set_scene();
+    //auto world = set_scene();
+    auto world = random_scene();
 
     // Camera
     point3 lookfrom(13, 2, 3);
@@ -427,14 +455,15 @@ int main()
     std::cerr << "Image Size:\t" << IMG_WIDTH << "x" << IMG_HEIGHT << endl;
     std::cerr << "Max Depth:\t" << MAX_DEPTH << endl;
     std::cerr << "Samples/Pixel:\t" << SAMPLES_PER_PIXEL << endl;
-    driver(pixel_serial_unopt, "Unoptimized", cam, world, pixel_colors);
-    driver(pixel_serial_unroll_2, "2x Unroll", cam, world, pixel_colors);
-    driver(pixel_serial_unroll_4, "4x Unroll", cam, world, pixel_colors);
-    driver(pixel_serial_unroll_8, "8x Unroll", cam, world, pixel_colors);
-    driver(pixel_serial_unroll_2_acc_2, "2x Unroll, 2 accumulators", cam, world, pixel_colors);
-    driver(pixel_serial_unroll_4_acc_2, "4x Unroll, 2 accumulators", cam, world, pixel_colors);
-    driver(pixel_serial_unroll_8_acc_2, "8x Unroll, 2 accumulators", cam, world, pixel_colors);
-
+    omp_set_num_threads(32);
+    float unopt = driver(pixel_serial_unopt, "32 Threads", cam, world, pixel_colors);
+    /* float unroll_2 = driver(pixel_serial_unroll_2, "2x Unroll", cam, world, pixel_colors);
+    float unroll_4 = driver(pixel_serial_unroll_4, "4x Unroll", cam, world, pixel_colors);
+    float unroll_8 = driver(pixel_serial_unroll_8, "8x Unroll", cam, world, pixel_colors);
+    float unroll_2_acc_2 = driver(pixel_serial_unroll_2_acc_2, "2x Unroll, 2 accumulators", cam, world, pixel_colors);
+    float unroll_4_acc_2 = driver(pixel_serial_unroll_4_acc_2, "4x Unroll, 2 accumulators", cam, world, pixel_colors);
+    float unroll_8_acc_2 = driver(pixel_serial_unroll_8_acc_2, "8x Unroll, 2 accumulators", cam, world, pixel_colors); */
     write_colors(std::cout, pixel_colors, IMG_WIDTH * IMG_HEIGHT, SAMPLES_PER_PIXEL);
     std::cerr << "\nDone.\n";
+    //std::cerr << unopt << "," << unroll_2 << "," << unroll_4 << "," << unroll_8 << "," << unroll_2_acc_2 << "," << unroll_4_acc_2 << "," << unroll_8_acc_2 << endl;
 }
