@@ -1,3 +1,12 @@
+#include <string>
+#include <fstream>
+#include <iostream>
+
+using std::cerr;
+using std::endl;
+using std::ofstream;
+using std::string;
+
 #include "rtweekend.h"
 #include "color.h"
 #include "hittable_list.h"
@@ -7,6 +16,28 @@
 #include "Timer.h"
 #include <omp.h>
 
+#define MAX_DEPTH 50
+#define SAMPLES_PER_PIXEL 20
+#define ASPECT_RATIO (16.0f / 9.0f)
+#define IMG_WIDTH 256
+#define IMG_HEIGHT static_cast<int>(IMG_WIDTH / ASPECT_RATIO)
+
+template <typename Function>
+void driver(Function func, string name, camera &cam, hittable_list &world, color pixel_colors[])
+{
+    std::cerr << "Testing " << name << "..." << endl;
+    Timer timer;
+    int counter = IMG_HEIGHT;
+#pragma omp parallel for
+    for (int j = IMG_HEIGHT - 1; j >= 0; --j)
+    {
+        for (int i = 0; i < IMG_WIDTH; ++i)
+        {
+            func(cam, world, pixel_colors, i, j);
+        }
+    }
+    return;
+}
 color ray_color(const ray &r, const hittable &world, int depth)
 {
     hit_record rec;
@@ -138,84 +169,241 @@ hittable_list random_scene()
     return world;
 }
 
-
-void pixel_serial_unopt(camera &cam, hittable_list &world, int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
+void pixel_serial_unopt(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
     color pixel_color(0, 0, 0);
-    for (int s = 0; s < samples_per_pixel; ++s)
+    for (int s = 0; s < SAMPLES_PER_PIXEL; ++s)
     {
-        auto u = (i + random_float()) / (image_width - 1);
-        auto v = (j + random_float()) / (image_height - 1);
+        auto u = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v = (j + random_float()) / (IMG_HEIGHT - 1);
         ray r = cam.get_ray(u, v);
-        pixel_color += ray_color(r, world, max_depth);
+        pixel_color += ray_color(r, world, MAX_DEPTH);
     }
-    write_color(std::cout, pixel_color, samples_per_pixel);
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void pixel_serial_unroll_2(camera &cam, hittable_list &world, int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
+void pixel_serial_unroll_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
     color pixel_color(0, 0, 0);
-    for (int s = 0; s < samples_per_pixel; s += 2)
+    for (int s = 0; s < SAMPLES_PER_PIXEL; s += 2)
     {
-        auto u1 = (i + random_float()) / (image_width - 1);
-        auto u2 = (i + random_float()) / (image_width - 1);
-        auto v1 = (j + random_float()) / (image_height - 1);
-        auto v2 = (j + random_float()) / (image_height - 1);
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u2 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v2 = (j + random_float()) / (IMG_HEIGHT - 1);
         ray r1 = cam.get_ray(u1, v1);
         ray r2 = cam.get_ray(u2, v2);
-        pixel_color += ray_color(r1, world, max_depth);
-        pixel_color += ray_color(r2, world, max_depth);
+        pixel_color += ray_color(r1, world, MAX_DEPTH);
+        pixel_color += ray_color(r2, world, MAX_DEPTH);
     }
-    write_color(std::cout, pixel_color, samples_per_pixel);
-}
-void pixel_serial_unroll_2(camera &cam, hittable_list &world, color pixel_colors[], int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
-    color pixel_color(0, 0, 0);
-    for (int s = 0; s < samples_per_pixel; s += 2)
+    if (SAMPLES_PER_PIXEL % 2)
     {
-        auto u1 = (i + random_float()) / (image_width - 1);
-        auto u2 = (i + random_float()) / (image_width - 1);
-        auto v1 = (j + random_float()) / (image_height - 1);
-        auto v2 = (j + random_float()) / (image_height - 1);
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
         ray r1 = cam.get_ray(u1, v1);
-        ray r2 = cam.get_ray(u2, v2);
-        pixel_color += ray_color(r1, world, max_depth);
-        pixel_color += ray_color(r2, world, max_depth);
+        pixel_color += ray_color(r1, world, MAX_DEPTH);
     }
-    pixel_colors[j * image_width + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void pixel_serial_unroll_4(camera &cam, hittable_list &world, color pixel_colors[], int max_depth, int samples_per_pixel, int image_width, int image_height, int i, int j) {
+void pixel_serial_unroll_4(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
     color pixel_color(0, 0, 0);
-    for (int s = 0; s < samples_per_pixel; s += 4)
+    for (int s = 0; s < SAMPLES_PER_PIXEL; s += 4)
     {
-        auto u1 = (i + random_float()) / (image_width - 1);
-        auto u2 = (i + random_float()) / (image_width - 1);
-        auto u3 = (i + random_float()) / (image_width - 1);
-        auto u4 = (i + random_float()) / (image_width - 1);
-        auto v1 = (j + random_float()) / (image_height - 1);
-        auto v2 = (j + random_float()) / (image_height - 1);
-        auto v3 = (j + random_float()) / (image_height - 1);
-        auto v4 = (j + random_float()) / (image_height - 1);
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u2 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u3 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u4 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v2 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v3 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v4 = (j + random_float()) / (IMG_HEIGHT - 1);
         ray r1 = cam.get_ray(u1, v1);
         ray r2 = cam.get_ray(u2, v2);
         ray r3 = cam.get_ray(u3, v3);
         ray r4 = cam.get_ray(u4, v4);
-        pixel_color += ray_color(r1, world, max_depth);
-        pixel_color += ray_color(r2, world, max_depth);
-        pixel_color += ray_color(r3, world, max_depth);
-        pixel_color += ray_color(r4, world, max_depth);
+        pixel_color += ray_color(r1, world, MAX_DEPTH);
+        pixel_color += ray_color(r2, world, MAX_DEPTH);
+        pixel_color += ray_color(r3, world, MAX_DEPTH);
+        pixel_color += ray_color(r4, world, MAX_DEPTH);
     }
-    pixel_colors[((image_height - j - 1) * image_width) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
+    for (int s = 0; s < SAMPLES_PER_PIXEL % 4; s++)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        pixel_color += ray_color(r1, world, MAX_DEPTH);
+    }
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
+
+void pixel_serial_unroll_8(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
+    color pixel_color(0, 0, 0);
+    int s;
+    for (s = 0; s < SAMPLES_PER_PIXEL; s += 8)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u2 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u3 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u4 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u5 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u6 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u7 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u8 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v2 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v3 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v4 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v5 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v6 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v7 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v8 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        ray r3 = cam.get_ray(u3, v3);
+        ray r4 = cam.get_ray(u4, v4);
+        ray r5 = cam.get_ray(u5, v5);
+        ray r6 = cam.get_ray(u6, v6);
+        ray r7 = cam.get_ray(u7, v7);
+        ray r8 = cam.get_ray(u8, v8);
+        pixel_color += ray_color(r1, world, MAX_DEPTH);
+        pixel_color += ray_color(r2, world, MAX_DEPTH);
+        pixel_color += ray_color(r3, world, MAX_DEPTH);
+        pixel_color += ray_color(r4, world, MAX_DEPTH);
+        pixel_color += ray_color(r5, world, MAX_DEPTH);
+        pixel_color += ray_color(r6, world, MAX_DEPTH);
+        pixel_color += ray_color(r7, world, MAX_DEPTH);
+        pixel_color += ray_color(r8, world, MAX_DEPTH);
+    }
+    for (int s = 0; s < SAMPLES_PER_PIXEL % 8; s++)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        pixel_color += ray_color(r1, world, MAX_DEPTH);
+    }
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
+}
+
+void pixel_serial_unroll_2_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
+    color pixel_color1(0, 0, 0);
+    color pixel_color2(0, 0, 0);
+    for (int s = 0; s < SAMPLES_PER_PIXEL; s += 2)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u2 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v2 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        pixel_color1 += ray_color(r1, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r2, world, MAX_DEPTH);
+    }
+    if (SAMPLES_PER_PIXEL % 2)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        pixel_color1 += ray_color(r1, world, MAX_DEPTH);
+    }
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
+}
+
+void pixel_serial_unroll_4_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
+    color pixel_color1(0, 0, 0);
+    color pixel_color2(0, 0, 0);
+    for (int s = 0; s < SAMPLES_PER_PIXEL; s += 4)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u2 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u3 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u4 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v2 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v3 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v4 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        ray r3 = cam.get_ray(u3, v3);
+        ray r4 = cam.get_ray(u4, v4);
+        pixel_color1 += ray_color(r1, world, MAX_DEPTH);
+        pixel_color1 += ray_color(r2, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r3, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r4, world, MAX_DEPTH);
+    }
+    for (int s = 0; s < SAMPLES_PER_PIXEL % 4; s++)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        pixel_color1 += ray_color(r1, world, MAX_DEPTH);
+    }
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
+}
+void pixel_serial_unroll_8_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+{
+    color pixel_color1(0, 0, 0);
+    color pixel_color2(0, 0, 0);
+    int s;
+    for (s = 0; s < SAMPLES_PER_PIXEL; s += 8)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u2 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u3 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u4 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u5 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u6 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u7 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto u8 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v2 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v3 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v4 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v5 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v6 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v7 = (j + random_float()) / (IMG_HEIGHT - 1);
+        auto v8 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        ray r2 = cam.get_ray(u2, v2);
+        ray r3 = cam.get_ray(u3, v3);
+        ray r4 = cam.get_ray(u4, v4);
+        ray r5 = cam.get_ray(u5, v5);
+        ray r6 = cam.get_ray(u6, v6);
+        ray r7 = cam.get_ray(u7, v7);
+        ray r8 = cam.get_ray(u8, v8);
+        pixel_color1 += ray_color(r1, world, MAX_DEPTH);
+        pixel_color1 += ray_color(r2, world, MAX_DEPTH);
+        pixel_color1 += ray_color(r3, world, MAX_DEPTH);
+        pixel_color1 += ray_color(r4, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r5, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r6, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r7, world, MAX_DEPTH);
+        pixel_color2 += ray_color(r8, world, MAX_DEPTH);
+    }
+    for (int s = 0; s < SAMPLES_PER_PIXEL % 8; s++)
+    {
+        auto u1 = (i + random_float()) / (IMG_WIDTH - 1);
+        auto v1 = (j + random_float()) / (IMG_HEIGHT - 1);
+        ray r1 = cam.get_ray(u1, v1);
+        pixel_color1 += ray_color(r1, world, MAX_DEPTH);
+    }
+    pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
+}
+/* const auto ASPECT_RATIO = 16.0f / 9.0f;
+const int IMG_WIDTH = 256;
+const int IMG_HEIGHT = static_cast<int>(IMG_WIDTH / ASPECT_RATIO);
+const int SAMPLES_PER_PIXEL = 20;
+const int MAX_DEPTH = 50; */
 int main()
 {
 
     // Image
 
-    const auto aspect_ratio = 16.0f / 9.0f;
-    const int image_width = 256;
-    const int image_height = static_cast<int>(image_width / aspect_ratio);
-    const int samples_per_pixel = 20;
-    const int max_depth = 50;
-    color* pixel_colors= new color[image_width * image_height];
+    color *pixel_colors = new color[IMG_WIDTH * IMG_HEIGHT];
 
     // World
 
@@ -228,37 +416,25 @@ int main()
     auto dist_to_focus = 10.0f;
     auto aperture = 0.1f;
 
-    camera cam(lookfrom, lookat, vup, 20, aspect_ratio, aperture, dist_to_focus);
+    camera cam(lookfrom, lookat, vup, 20, ASPECT_RATIO, aperture, dist_to_focus);
 
     // Render
 
+    omp_set_dynamic(0); // Explicitly disable dynamic teams
+    omp_set_num_threads(16);
     std::cout << "P3\n"
-              << image_width << ' ' << image_height << "\n255\n";
-    {
-        Timer timer;
-        // Fill output matrix: rows and columns are i and j respectively
-        omp_set_dynamic(0);     // Explicitly disable dynamic teams
+              << IMG_WIDTH << ' ' << IMG_HEIGHT << "\n255\n";
+    std::cerr << "Image Size:\t" << IMG_WIDTH << "x" << IMG_HEIGHT << endl;
+    std::cerr << "Max Depth:\t" << MAX_DEPTH << endl;
+    std::cerr << "Samples/Pixel:\t" << SAMPLES_PER_PIXEL << endl;
+    driver(pixel_serial_unopt, "Unoptimized", cam, world, pixel_colors);
+    driver(pixel_serial_unroll_2, "2x Unroll", cam, world, pixel_colors);
+    driver(pixel_serial_unroll_4, "4x Unroll", cam, world, pixel_colors);
+    driver(pixel_serial_unroll_8, "8x Unroll", cam, world, pixel_colors);
+    driver(pixel_serial_unroll_2_acc_2, "2x Unroll, 2 accumulators", cam, world, pixel_colors);
+    driver(pixel_serial_unroll_4_acc_2, "4x Unroll, 2 accumulators", cam, world, pixel_colors);
+    driver(pixel_serial_unroll_8_acc_2, "8x Unroll, 2 accumulators", cam, world, pixel_colors);
 
-        omp_set_num_threads(16);
-        #pragma omp parallel for
-        for (int j = image_height - 1; j >= 0; --j)
-        {
-            std::cerr << "\rScanlines remaining: " << j << ' ' << std::flush;
-            for (int i = 0; i < image_width; ++i)
-            {
-                pixel_serial_unroll_4(cam, world, pixel_colors, max_depth, samples_per_pixel, image_width, image_height, i, j);
-                // color pixel_color(0, 0, 0);
-                // for (int s = 0; s < samples_per_pixel; ++s)
-                // {
-                //     auto u = (i + random_float()) / (image_width - 1);
-                //     auto v = (j + random_float()) / (image_height - 1);
-                //     ray r = cam.get_ray(u, v);
-                //     pixel_color += ray_color(r, world, max_depth);
-                // }
-                // write_color(std::cout, pixel_color, samples_per_pixel);
-            }
-        }
-    }
-    write_colors(std::cout, pixel_colors, image_width * image_height, samples_per_pixel);
+    write_colors(std::cout, pixel_colors, IMG_WIDTH * IMG_HEIGHT, SAMPLES_PER_PIXEL);
     std::cerr << "\nDone.\n";
 }
