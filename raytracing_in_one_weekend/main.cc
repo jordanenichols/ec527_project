@@ -3,6 +3,7 @@
 #include <iostream>
 
 using std::cerr;
+using std::cout;
 using std::endl;
 using std::ofstream;
 using std::string;
@@ -22,12 +23,25 @@ using std::string;
 #define IMG_WIDTH 120
 #define IMG_HEIGHT static_cast<int>(IMG_WIDTH / ASPECT_RATIO)
 
-template <typename Function>
+typedef void (*ray_function)(camera &, hittable_list &, color[], int, int);
 
-float driver(Function func, string name, camera &cam, hittable_list &world, color pixel_colors[])
+void driver(ray_function func, string name, camera &cam, hittable_list &world, color pixel_colors[], int use_threads)
 {
-    std::cerr << "Testing " << name << "..." << endl;
-    Timer timer;
+    string bla = use_threads ? "Multi-Threaded " : "Single-Threaded ";
+    cerr << "Testing " << bla << name << " Code..." << endl;
+#pragma omp parallel for if (use_threads)
+    for (int j = IMG_HEIGHT - 1; j >= 0; --j)
+    {
+        for (int i = 0; i < IMG_WIDTH; ++i)
+        {
+            func(cam, world, pixel_colors, i, j);
+        }
+    }
+}
+
+void driver(ray_function func, string name, camera &cam, hittable_list &world, color pixel_colors[])
+{
+    cerr << "Testing " << name << "..." << endl;
 #pragma omp parallel for
     for (int j = IMG_HEIGHT - 1; j >= 0; --j)
     {
@@ -36,33 +50,7 @@ float driver(Function func, string name, camera &cam, hittable_list &world, colo
             func(cam, world, pixel_colors, i, j);
         }
     }
-    return timer.timer_end();
 }
-
-void ray_trace(camera &cam, hittable_list &world, color pixel_colors[])
-{
-    /* Loop through each pixel in the image */
-    for (int j = IMG_HEIGHT - 1; j >= 0; --j)
-    {
-        for (int i = 0; i < IMG_WIDTH; ++i)
-        {
-            /* Generate SAMPLES_PER_PIXEL rays for pixel [i, j] */
-            color pixel_color(0, 0, 0);
-            for (int s = 0; s < SAMPLES_PER_PIXEL; ++s)
-            {
-                /* Each ray `r` from the camera to pixel [i, j] is offset by a random value in [0, 1) */
-                auto u = (i + random_float()) / (IMG_WIDTH - 1);
-                auto v = (j + random_float()) / (IMG_HEIGHT - 1);
-                ray r = cam.get_ray(u, v);
-                /* Determine the color of the pixel by calculating which, if any, objects the ray intersects */
-                pixel_color += ray_color(r, world, MAX_DEPTH);
-            }
-            /* Write the pixel color to the array */
-            pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
-        }
-    }
-}
-
 color ray_color(const ray &r, const hittable &world, int depth)
 {
     hit_record rec;
@@ -73,7 +61,8 @@ color ray_color(const ray &r, const hittable &world, int depth)
 
     if (world.hit(r, 0.001, infinity, rec))
     {
-        /* If we hit an object, calculate scattered rays based on material of object */
+        /* If we hit an object, calculate scattered rays based on the 
+        material of the object */
         ray scattered;
         color attenuation;
         /* If we scatter, then we recurse on the attenuated scattered ray */
@@ -141,6 +130,7 @@ hittable_list set_scene()
 
     return world;
 }
+
 hittable_list random_scene()
 {
     hittable_list world;
@@ -196,7 +186,7 @@ hittable_list random_scene()
     return world;
 }
 
-void pixel_serial_unopt(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_unopt(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
     for (int s = 0; s < SAMPLES_PER_PIXEL; ++s)
@@ -209,7 +199,7 @@ void pixel_serial_unopt(camera &cam, hittable_list &world, color pixel_colors[],
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void pixel_serial_unroll_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_u2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
     for (int s = 0; s < SAMPLES_PER_PIXEL; s += 2)
@@ -233,7 +223,7 @@ void pixel_serial_unroll_2(camera &cam, hittable_list &world, color pixel_colors
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void pixel_serial_unroll_4(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_u4(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
     for (int s = 0; s < SAMPLES_PER_PIXEL; s += 4)
@@ -265,7 +255,7 @@ void pixel_serial_unroll_4(camera &cam, hittable_list &world, color pixel_colors
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void pixel_serial_unroll_8(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_u8(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
     int s;
@@ -314,7 +304,7 @@ void pixel_serial_unroll_8(camera &cam, hittable_list &world, color pixel_colors
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
-void unroll_2_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_u2_a2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
     color pixel_color2(0, 0, 0);
@@ -339,7 +329,7 @@ void unroll_2_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
 }
 
-void pixel_serial_unroll_4_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_u4_a2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
     color pixel_color2(0, 0, 0);
@@ -371,7 +361,7 @@ void pixel_serial_unroll_4_acc_2(camera &cam, hittable_list &world, color pixel_
     }
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
 }
-void pixel_serial_unroll_8_acc_2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
+void ray_trace_u8_a2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
     color pixel_color2(0, 0, 0);
@@ -420,50 +410,50 @@ void pixel_serial_unroll_8_acc_2(camera &cam, hittable_list &world, color pixel_
     }
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
 }
-/* const auto ASPECT_RATIO = 16.0f / 9.0f;
-const int IMG_WIDTH = 256;
-const int IMG_HEIGHT = static_cast<int>(IMG_WIDTH / ASPECT_RATIO);
-const int SAMPLES_PER_PIXEL = 20;
-const int MAX_DEPTH = 50; */
+
 int main()
 {
 
     // Image
-
     color *pixel_colors = new color[IMG_WIDTH * IMG_HEIGHT];
 
-    // World
-
-    //auto world = set_scene();
-    auto world = random_scene();
+    // World -- set_scene() is used for testing, change to random_scene() for different image output
+    auto world = set_scene();
 
     // Camera
-    point3 lookfrom(13, 2, 3);
+    point3 lookfrom(0, 5, 15);
     point3 lookat(0, 0, 0);
     vec3 vup(0, 1, 0);
-    auto dist_to_focus = 10.0f;
-    auto aperture = 0.1f;
+    float dist_to_focus = 15.8f;
+    float aperture = 0.1f;
 
     camera cam(lookfrom, lookat, vup, 20, ASPECT_RATIO, aperture, dist_to_focus);
 
     // Render
 
-    omp_set_dynamic(0); // Explicitly disable dynamic teams
+    ray_function functions[7] = {ray_trace_unopt, ray_trace_u2, ray_trace_u4, ray_trace_u8, ray_trace_u2_a2, ray_trace_u4_a2, ray_trace_u8_a2};
+    string names[7] = {"Unoptimized", "2x Unroll", "4x Unroll", "8x Unroll", "2x Unroll, 2 Accumulators", "4x Unroll, 2 Accumulators", "8x Unroll, 8 Accumulators"};
+
+    cout << "P3\n"
+         << IMG_WIDTH << ' ' << IMG_HEIGHT << "\n255\n";
+
+    cerr << "Image Size:\t" << IMG_WIDTH << "x" << IMG_HEIGHT << endl;
+    cerr << "Max Depth:\t" << MAX_DEPTH << endl;
+    cerr << "Samples/Pixel:\t" << SAMPLES_PER_PIXEL << endl;
+
+    omp_set_dynamic(0);
     omp_set_num_threads(16);
-    std::cout << "P3\n"
-              << IMG_WIDTH << ' ' << IMG_HEIGHT << "\n255\n";
-    std::cerr << "Image Size:\t" << IMG_WIDTH << "x" << IMG_HEIGHT << endl;
-    std::cerr << "Max Depth:\t" << MAX_DEPTH << endl;
-    std::cerr << "Samples/Pixel:\t" << SAMPLES_PER_PIXEL << endl;
-    omp_set_num_threads(32);
-    float unopt = driver(pixel_serial_unopt, "32 Threads", cam, world, pixel_colors);
-    /* float unroll_2 = driver(pixel_serial_unroll_2, "2x Unroll", cam, world, pixel_colors);
-    float unroll_4 = driver(pixel_serial_unroll_4, "4x Unroll", cam, world, pixel_colors);
-    float unroll_8 = driver(pixel_serial_unroll_8, "8x Unroll", cam, world, pixel_colors);
-    float unroll_2_acc_2 = driver(pixel_serial_unroll_2_acc_2, "2x Unroll, 2 accumulators", cam, world, pixel_colors);
-    float unroll_4_acc_2 = driver(pixel_serial_unroll_4_acc_2, "4x Unroll, 2 accumulators", cam, world, pixel_colors);
-    float unroll_8_acc_2 = driver(pixel_serial_unroll_8_acc_2, "8x Unroll, 2 accumulators", cam, world, pixel_colors); */
-    write_colors(std::cout, pixel_colors, IMG_WIDTH * IMG_HEIGHT, SAMPLES_PER_PIXEL);
-    std::cerr << "\nDone.\n";
-    //std::cerr << unopt << "," << unroll_2 << "," << unroll_4 << "," << unroll_8 << "," << unroll_2_acc_2 << "," << unroll_4_acc_2 << "," << unroll_8_acc_2 << endl;
+
+    /* Using OpenMP*/
+    for (int i = 0; i < 7; i++)
+    {
+        driver(functions[i], names[i], cam, world, pixel_colors, 1);
+    }
+    /* Single-Threaded Code*/
+    for (int i = 0; i < 7; i++)
+    {
+        driver(functions[i], names[i], cam, world, pixel_colors, 0);
+    }
+
+    cerr << "\nDone.\n";
 }
