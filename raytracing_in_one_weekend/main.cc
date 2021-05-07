@@ -1,3 +1,11 @@
+/* 
+    EC527 Final Project
+    By Will Martin, Jordan Nichols
+
+    Code adopted from "Ray Tracing in One Weekend", by Peter Shirley
+    https://raytracing.github.io/books/RayTracingInOneWeekend.html
+
+*/
 #include <string>
 #include <fstream>
 #include <iostream>
@@ -17,6 +25,7 @@ using std::string;
 #include "Timer.h"
 #include <omp.h>
 
+#define NUM_THREADS 16
 #define MAX_DEPTH 50
 #define SAMPLES_PER_PIXEL 20
 #define ASPECT_RATIO (16.0f / 9.0f)
@@ -39,18 +48,6 @@ void driver(ray_function func, string name, camera &cam, hittable_list &world, c
     }
 }
 
-void driver(ray_function func, string name, camera &cam, hittable_list &world, color pixel_colors[])
-{
-    cerr << "Testing " << name << "..." << endl;
-#pragma omp parallel for
-    for (int j = IMG_HEIGHT - 1; j >= 0; --j)
-    {
-        for (int i = 0; i < IMG_WIDTH; ++i)
-        {
-            func(cam, world, pixel_colors, i, j);
-        }
-    }
-}
 color ray_color(const ray &r, const hittable &world, int depth)
 {
     hit_record rec;
@@ -76,6 +73,7 @@ color ray_color(const ray &r, const hittable &world, int depth)
     return (1.0 - t) * color(1.0, 1.0, 1.0) + t * color(0.5, 0.7, 1.0);
 }
 
+/* predefined scene used for benchmarking */
 hittable_list set_scene()
 {
     hittable_list world;
@@ -186,6 +184,7 @@ hittable_list random_scene()
     return world;
 }
 
+/* No loop unrolling or accumulators */
 void ray_trace_unopt(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
@@ -199,6 +198,7 @@ void ray_trace_unopt(camera &cam, hittable_list &world, color pixel_colors[], in
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
+/* Loop unrolling x2 */
 void ray_trace_u2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
@@ -223,6 +223,7 @@ void ray_trace_u2(camera &cam, hittable_list &world, color pixel_colors[], int i
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
+/* Loop unrolling x4 */
 void ray_trace_u4(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
@@ -255,6 +256,7 @@ void ray_trace_u4(camera &cam, hittable_list &world, color pixel_colors[], int i
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
+/* Loop unrolling x8 */
 void ray_trace_u8(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color(0, 0, 0);
@@ -304,6 +306,7 @@ void ray_trace_u8(camera &cam, hittable_list &world, color pixel_colors[], int i
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color.x(), pixel_color.y(), pixel_color.z());
 }
 
+/* Loop unrolling x2, 2 accumulators */
 void ray_trace_u2_a2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
@@ -329,6 +332,7 @@ void ray_trace_u2_a2(camera &cam, hittable_list &world, color pixel_colors[], in
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
 }
 
+/* Loop unrolling x4, 2 accumulators */
 void ray_trace_u4_a2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
@@ -361,6 +365,8 @@ void ray_trace_u4_a2(camera &cam, hittable_list &world, color pixel_colors[], in
     }
     pixel_colors[((IMG_HEIGHT - j - 1) * IMG_WIDTH) + i] = color(pixel_color1.x() + pixel_color2.x(), pixel_color1.y() + pixel_color2.y(), pixel_color1.z() + pixel_color2.z());
 }
+
+/* Loop unrolling x8, 2 accumulators */
 void ray_trace_u8_a2(camera &cam, hittable_list &world, color pixel_colors[], int i, int j)
 {
     color pixel_color1(0, 0, 0);
@@ -442,14 +448,14 @@ int main()
     cerr << "Samples/Pixel:\t" << SAMPLES_PER_PIXEL << endl;
 
     omp_set_dynamic(0);
-    omp_set_num_threads(16);
+    omp_set_num_threads(NUM_THREADS);
 
-    /* Using OpenMP*/
+    /* Using OpenMP */
     for (int i = 0; i < 7; i++)
     {
         driver(functions[i], names[i], cam, world, pixel_colors, 1);
     }
-    /* Single-Threaded Code*/
+    /* Single-Threaded Code */
     for (int i = 0; i < 7; i++)
     {
         driver(functions[i], names[i], cam, world, pixel_colors, 0);
